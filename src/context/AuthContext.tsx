@@ -17,6 +17,7 @@ import {
   getRedirectResult,
   setPersistence,
   browserLocalPersistence,
+  browserSessionPersistence,
 } from "firebase/auth";
 
 import { auth, googleProvider } from "@/lib/firebase";
@@ -44,16 +45,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        // 🔥 WAJIB untuk mobile agar session tersimpan
-        await setPersistence(auth, browserLocalPersistence);
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(
+          navigator.userAgent
+        );
 
-        // 🔥 Handle redirect result (flow mobile)
+        // 🔥 Mobile pakai session persistence (lebih stabil)
+        if (isMobile) {
+          await setPersistence(auth, browserSessionPersistence);
+        } else {
+          await setPersistence(auth, browserLocalPersistence);
+        }
+
+        // 🔥 Handle redirect result (mobile flow)
         const result = await getRedirectResult(auth);
         if (result?.user) {
           console.log("Redirect login success:", result.user);
         }
 
-        // 🔥 Listen auth state globally
+        // 🔥 Listen auth state
         const unsubscribe = onAuthStateChanged(auth, (user) => {
           console.log("Auth state changed:", user);
           setUser(user);
@@ -77,16 +86,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     try {
       if (isMobile) {
-        // 🔥 Mobile pakai redirect (lebih stabil)
+        // 🔥 Redirect lebih aman untuk mobile
         await signInWithRedirect(auth, googleProvider);
       } else {
-        // Desktop pakai popup
         await signInWithPopup(auth, googleProvider);
       }
     } catch (error: any) {
       console.error("Google login error:", error);
 
-      // fallback redirect kalau popup gagal
       if (
         error.code !== "auth/popup-closed-by-user" &&
         error.code !== "auth/cancelled-popup-request" &&
@@ -99,7 +106,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = async () => {
     try {
-      // clear local storage
       localStorage.removeItem("worshipHistory");
       localStorage.removeItem("fastingHistory");
       localStorage.removeItem("fastingStatus");
