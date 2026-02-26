@@ -1,99 +1,126 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  ReactNode,
+} from "react";
+
+import {
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  onAuthStateChanged,
+  User,
+  getRedirectResult,
+  setPersistence,
+  browserLocalPersistence,
+} from "firebase/auth";
+
 import { auth, googleProvider } from "@/lib/firebase";
-import { signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged, User, getRedirectResult } from "firebase/auth";
 
 interface AuthContextType {
-    user: User | null;
-    loading: boolean;
-    signInWithGoogle: () => Promise<void>;
-    logout: () => Promise<void>;
+  user: User | null;
+  loading: boolean;
+  signInWithGoogle: () => Promise<void>;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
-    user: null,
-    loading: true,
-    signInWithGoogle: async () => { },
-    logout: async () => { },
+  user: null,
+  loading: true,
+  signInWithGoogle: async () => {},
+  logout: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-    const [user, setUser] = useState<User | null>(null);
-    const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
-    useEffect(() => {
-        // 1. Check for redirect result (crucial for mobile flow)
-        getRedirectResult(auth)
-            .then((result) => {
-                if (result) {
-                    console.log("Redirect sign-in successful:", result.user);
-                    // User state will be updated by onAuthStateChanged automatically
-                }
-            })
-            .catch((error) => {
-                console.error("Redirect sign-in error:", error);
-            });
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        // 🔥 WAJIB untuk mobile agar session tersimpan
+        await setPersistence(auth, browserLocalPersistence);
 
-        // 2. Listen for auth state changes
+        // 🔥 Handle redirect result (flow mobile)
+        const result = await getRedirectResult(auth);
+        if (result?.user) {
+          console.log("Redirect login success:", result.user);
+        }
+
+        // 🔥 Listen auth state globally
         const unsubscribe = onAuthStateChanged(auth, (user) => {
-            setUser(user);
-            setLoading(false);
+          console.log("Auth state changed:", user);
+          setUser(user);
+          setLoading(false);
         });
 
-        return () => unsubscribe();
-    }, []);
-
-    const signInWithGoogle = async () => {
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-        try {
-            if (isMobile) {
-                await signInWithRedirect(auth, googleProvider);
-            } else {
-                await signInWithPopup(auth, googleProvider);
-            }
-        } catch (error: any) {
-            console.error("Error signing in with Google", error);
-
-            // Only fallback to redirect if it's NOT a user cancellation/close
-            // This prevents the "slow" feeling if a user just closes the popup
-            if (error.code !== 'auth/popup-closed-by-user' &&
-                error.code !== 'auth/cancelled-popup-request' &&
-                !isMobile) {
-                try {
-                    await signInWithRedirect(auth, googleProvider);
-                } catch (retryError) {
-                    console.error("Retry with redirect failed", retryError);
-                }
-            }
-        }
+        return unsubscribe;
+      } catch (error) {
+        console.error("Auth initialization error:", error);
+        setLoading(false);
+      }
     };
 
-    const logout = async () => {
-        try {
-            // Clear all app-related local storage
-            localStorage.removeItem("worshipHistory");
-            localStorage.removeItem("fastingHistory");
-            localStorage.removeItem("fastingStatus");
-            // Clear daily tasks
-            Object.keys(localStorage).forEach(key => {
-                if (key.startsWith("worshipTasks_")) {
-                    localStorage.removeItem(key);
-                }
-            });
+    initAuth();
+  }, []);
 
-            await signOut(auth);
-        } catch (error) {
-            console.error("Error signing out", error);
-        }
-    };
-
-    return (
-        <AuthContext.Provider value={{ user, loading, signInWithGoogle, logout }}>
-            {children}
-        </AuthContext.Provider>
+  const signInWithGoogle = async () => {
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(
+      navigator.userAgent
     );
+
+    try {
+      if (isMobile) {
+        // 🔥 Mobile pakai redirect (lebih stabil)
+        await signInWithRedirect(auth, googleProvider);
+      } else {
+        // Desktop pakai popup
+        await signInWithPopup(auth, googleProvider);
+      }
+    } catch (error: any) {
+      console.error("Google login error:", error);
+
+      // fallback redirect kalau popup gagal
+      if (
+        error.code !== "auth/popup-closed-by-user" &&
+        error.code !== "auth/cancelled-popup-request" &&
+        !isMobile
+      ) {
+        await signInWithRedirect(auth, googleProvider);
+      }
+    }
+  };
+
+  const logout = async () => {
+    try {
+      // clear local storage
+      localStorage.removeItem("worshipHistory");
+      localStorage.removeItem("fastingHistory");
+      localStorage.removeItem("fastingStatus");
+
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith("worshipTasks_")) {
+          localStorage.removeItem(key);
+        }
+      });
+
+      await signOut(auth);
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{ user, loading, signInWithGoogle, logout }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 };
