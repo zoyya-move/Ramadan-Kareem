@@ -62,24 +62,83 @@ export default function MuslimProDashboard() {
     const [city, setCity] = useState("Yogyakarta & Jateng (WIB)");
     const [isMounted, setIsMounted] = useState(false);
     const [country, setCountry] = useState("Indonesia");
-    const [coords, setCoords] = useState<{ lat: number; long: number } | null>({ lat: -7.7956, long: 110.3695 });
+    const [coords, setCoords] = useState<{ lat: number; long: number } | null>(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [isLocationSheetOpen, setIsLocationSheetOpen] = useState(false);
 
     // Load saved location on mount
     useEffect(() => {
-        setIsMounted(true);
+    setIsMounted(true);
+
+    const detectLocation = () => {
         const savedCity = localStorage.getItem("selectedCity");
         const savedCoords = localStorage.getItem("selectedCoords");
+
+        // 1️⃣ Kalau ada lokasi tersimpan → pakai itu
         if (savedCity && savedCoords) {
             try {
                 setCity(savedCity);
                 setCoords(JSON.parse(savedCoords));
-            } catch (e) {
-                // Ignore parse error
-            }
+                return;
+            } catch {}
         }
-    }, []);
+
+        // 2️⃣ Kalau belum ada → auto detect
+        if ("geolocation" in navigator) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+
+                    // Cari kota terdekat dari CITIES
+                    const nearestCity = CITIES.reduce((prev, curr) => {
+                        const prevDistance =
+                            Math.sqrt(
+                                Math.pow(prev.lat - latitude, 2) +
+                                Math.pow(prev.long - longitude, 2)
+                            );
+
+                        const currDistance =
+                            Math.sqrt(
+                                Math.pow(curr.lat - latitude, 2) +
+                                Math.pow(curr.long - longitude, 2)
+                            );
+
+                        return currDistance < prevDistance ? curr : prev;
+                    });
+
+                    setCity(nearestCity.name);
+                    setCoords({ lat: nearestCity.lat, long: nearestCity.long });
+
+                    localStorage.setItem("selectedCity", nearestCity.name);
+                    localStorage.setItem(
+                        "selectedCoords",
+                        JSON.stringify({ lat: nearestCity.lat, long: nearestCity.long })
+                    );
+                },
+                (error) => {
+                    console.log("Location denied:", error);
+
+                    // fallback default
+                    const fallback = CITIES.find(c =>
+                        c.name.includes("Yogyakarta")
+                    );
+
+                    if (fallback) {
+                        setCity(fallback.name);
+                        setCoords({ lat: fallback.lat, long: fallback.long });
+                    }
+                }
+            );
+        } else {
+            // Browser tidak support
+            const fallback = CITIES[0];
+            setCity(fallback.name);
+            setCoords({ lat: fallback.lat, long: fallback.long });
+        }
+    };
+
+    detectLocation();
+}, []);
 
     // Helper to format YYYY-MM-DD
     const formatDateKey = (date: Date) => {
